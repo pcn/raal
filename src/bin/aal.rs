@@ -93,17 +93,6 @@ fn tags_of(instance: &Instance) -> HashMap<String, String> {
              }
          }
      }
-
-    // match instance.tags {
-    //     Some(ref instance_tags) => {
-    //         for tag in instance_tags {
-    //             let key = tag.key.clone().unwrap();
-    //             let val = tag.value.clone().unwrap();
-    //             tags.insert(key, val);
-    //         }
-    //     },
-    //     None => ()
-    // };
     tags
 }
 
