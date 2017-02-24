@@ -1,0 +1,19 @@
+[package]
+name = "rush"
+version = "0.1.0"
+authors = ["Peter C. Norton <spacey@spacey.org>"]
+
+[dependencies]
+# serde for json serialization and deserialization
+serde = "0.9"
+serde_json = "0.9"
+serde_derive = "0.9"
+# Rusoto AWS API
+# rusoto = {git = "https://github.com/rusoto/rusoto/", features=["ec2"]}
+rusoto = {version = "0.22.0", features = ["ec2"]}
+# regular expressions for when I'm ready to filter fields
+regex = "0.2.1"
+# Docopt for the easy CLI
+docopt = "0.7"
+# rustc-serialize = "0.3" # for docopt - if you're using `derive(RustcDecodable)`
+rand = "0.3"
