@@ -14,7 +14,7 @@ extern crate serde_derive;
 
 use std::collections::{HashMap, HashSet};
 use rusoto::Region;
-use rusoto::ec2::{Ec2Client, DescribeInstancesRequest, Reservation, Instance};
+use rusoto::ec2::{Ec2Client, DescribeInstancesRequest, Instance};
 use rusoto::default_tls_client;
 use std::str::FromStr;
 use docopt::Docopt;
@@ -38,6 +38,9 @@ Options:
   -d --debug            whatever stuff I've broken will get done
 ";
 
+
+// A flat structure to make searching for an instance faster, with a
+// link back to the instance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct AshufInfo {
     instance_id: String,
@@ -47,21 +50,7 @@ struct AshufInfo {
     launch_time: String,
     availability_zone: String,
     image_ami: String,
-    tags: HashMap<String, String>
-}
-
-
-
-fn all_reservation_instances(reservations: Vec<Reservation>) -> Vec<Instance> {
-    let mut instances = Vec::new();
-    for res in reservations {
-        for res_instances in res.instances {
-            for inst in res_instances {
-                instances.push(inst);
-            }
-        }
-    }
-    instances
+    tags: HashMap<String, String>,
 }
 
 fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
@@ -114,7 +103,7 @@ fn less_reservations_info(instances: Vec<Instance>) -> Vec<AshufInfo> {
             launch_time: String::from(inst.launch_time.unwrap()),
             availability_zone: String::from(inst.placement.unwrap().availability_zone.unwrap()),
             image_ami: String::from(inst.image_id.unwrap()),
-            tags: tags
+            tags: tags,
         };
         limited_instances.push(new_asi);
     }
@@ -143,7 +132,7 @@ fn partition_matches(rexpr: &Regex, tag: &String, instances: Vec<AshufInfo>) -> 
     (matched, unmatched)
 }
 
-
+// Bring
 fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, instances: Vec<AshufInfo>) -> Vec<AshufInfo> {
     let rexpr = Regex::new(&pattern).unwrap();
     let mut unmatched_instances = Vec::new();
@@ -193,7 +182,7 @@ fn main() {
 
     match client.describe_instances(&ec2_request_input) {
         Ok(response) => {
-            let instances = all_reservation_instances(response.reservations.unwrap());
+            let instances = rush::ec2_instances::ec2_res_to_instances(response.reservations.unwrap());
             // if parsed_cmdline.get_bool("-d") {
             //     println!("{:?}", instances);
             // };
