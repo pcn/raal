@@ -54,7 +54,10 @@ struct AshufInfo {
 }
 
 fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
-    // A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
+    /// A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
+    /// This function extracts those addresses, and returns two vectors.  The left
+    /// vector contains the private addresses of an instance, and the right vector contains the
+    /// public addresses of an instance.
     let mut private = HashSet::new();
     let mut public = HashSet::new();
 
@@ -66,7 +69,6 @@ fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
         }
     }
 
-
     instance.private_ip_address.as_ref().map(|addr| private.insert(addr.clone()));
     instance.public_ip_address.as_ref().map(|addr| public.insert(addr.clone()));
 
@@ -74,6 +76,8 @@ fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
 }
 
 fn tags_of(instance: &Instance) -> HashMap<String, String> {
+    /// Tags are stored as inconvenient pairs of {"Name": "name", "Value": "Value"}
+    /// turn them into simpler key/value map here
     let mut tags = HashMap::new();
     if let Some(ref instance_tags) = instance.tags {
         for tag in instance_tags {
@@ -87,8 +91,12 @@ fn tags_of(instance: &Instance) -> HashMap<String, String> {
 
 
 
-fn less_reservations_info(instances: Vec<Instance>) -> Vec<AshufInfo> {
-    // extract the fields we want from each instance
+fn ashuf_info_list(instances: Vec<Instance>) -> Vec<AshufInfo> {
+    /// Take just the data we want for the AshufInfo struct from the
+    /// rusoto::ec2::Instance type, and return a vector of `AshufInfo`
+    ///
+    /// All data is copied from the instances provided, they are consumed
+    /// here.
     let mut limited_instances: Vec<AshufInfo> = Vec::new();
     for inst in instances {
         // println!("This instance is {:?}",  inst);
@@ -150,8 +158,6 @@ fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, inst
 }
 
 
-
-
 fn main() {
     let version = "0.1.0".to_owned();
     let parsed_cmdline = Docopt::new(USAGE)
@@ -186,7 +192,7 @@ fn main() {
             // if parsed_cmdline.get_bool("-d") {
             //     println!("{:?}", instances);
             // };
-            limited_info.extend(less_reservations_info(instances));
+            limited_info.extend(ashuf_info_list(instances));
             // println!("{:?}", limited_info.len());
 
         },
