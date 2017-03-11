@@ -20,6 +20,8 @@ use std::str::FromStr;
 use docopt::Docopt;
 use regex::Regex;
 
+use rush::ec2_instances::{AshufInfo, write_saved_json};
+
 const USAGE: &'static str = "
 Query amazon for a random choice among some set of resources
 
@@ -39,19 +41,19 @@ Options:
 ";
 
 
-// A flat structure to make searching for an instance faster, with a
-// link back to the instance.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct AshufInfo {
-    instance_id: String,
-    private_ip_addresses: Vec<String>,
-    public_ip_addresses: Vec<String>,
-    state_name: String,
-    launch_time: String,
-    availability_zone: String,
-    image_ami: String,
-    tags: HashMap<String, String>,
-}
+// // A flat structure to make searching for an instance faster, with a
+// // link back to the instance.
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// struct AshufInfo {
+//     instance_id: String,
+//     private_ip_addresses: Vec<String>,
+//     public_ip_addresses: Vec<String>,
+//     state_name: String,
+//     launch_time: String,
+//     availability_zone: String,
+//     image_ami: String,
+//     tags: HashMap<String, String>,
+// }
 
 fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
     /// A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
@@ -181,9 +183,6 @@ fn main() {
     ec2_request_input.instance_ids = None;
     // ec2_request_input.instance_ids = Some(vec!["something".into()]);
 
-    if debug {
-        println!("{:?}", ec2_request_input);
-    }
     let mut limited_info = Vec::new();
 
     match client.describe_instances(&ec2_request_input) {
@@ -207,6 +206,9 @@ fn main() {
     //    println!("{}", m.ip_addresses[0].clone());
     // }
     let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
-    println!("{}", matched_json);
-
+    // Now write the cache
+    match write_saved_json(1, &matches) {
+        Ok(_) => println!("{}", matched_json),
+        Err(result) => println!("{:?}", result)
+    };
 }
