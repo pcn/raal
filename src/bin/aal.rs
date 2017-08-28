@@ -2,7 +2,8 @@
 
 
 extern crate docopt;
-extern crate rusoto;
+extern crate rusoto_core;
+extern crate rusoto_ec2;
 extern crate rush;
 extern crate regex;
 extern crate rand;
@@ -13,14 +14,14 @@ extern crate serde_derive;
 
 
 use std::collections::{HashMap, HashSet};
-use rusoto::Region;
-use rusoto::ec2::{Ec2Client, DescribeInstancesRequest, Instance};
-use rusoto::default_tls_client;
+use rusoto_core::{Region, default_tls_client};
+use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance};
 use std::str::FromStr;
+use std::env;
 use docopt::Docopt;
 use regex::Regex;
 
-use rush::ec2_instances::{AshufInfo, write_saved_json};
+use rush::ec2_instances::{AshufInfo, write_saved_json, ec2_cached_data};
 
 const USAGE: &'static str = "
 Query amazon for a random choice among some set of resources
@@ -28,16 +29,18 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  aal [-c | --no-cache] [-d | --debug] [-a <api>...] [-r <region>...] <pattern>
+  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-a <api>...] [-r <region>...] [-m | --mode <output_mode>] <pattern>
   aal (-h | --help)
 
 Options:
-  -h --help             Show this help screen
-  -c --no-cache         Bypass the cached resources info
-  -r --region=<region>  Region (can be specified more than once) [default: us-east-1 us-west-2]
-  -a --api=<api>        Which AWS api [default: ec2]
-  -s --ssh-host         Pick a node to ssh to
-  -d --debug            whatever stuff I've broken will get done
+  -h --help                 Show this help screen
+  -c --no-cache             Bypass the cached resources info
+  -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
+  -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
+  -a --api=<api>            Which AWS api [default: ec2]
+  -s --ssh-host             Pick a node to ssh to
+  -d --debug                whatever stuff I've broken will get done
+  -m --mode                 Output mode [default: ip_private_line]
 ";
 
 
@@ -159,6 +162,8 @@ fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, inst
     matched_instances
 }
 
+fn print_ip_private_line(results) {
+    /// prints the publuc 
 
 fn main() {
     let version = "0.1.0".to_owned();
@@ -176,39 +181,42 @@ fn main() {
     // so they can be combined afterwards.  But for now, let's do one
     // region.
     let r = parsed_cmdline.get_vec("-r");
+    let aws_id = match(env::var(parsed_cmdline.get_str("-e"))) {
+        Ok(val) => val,
+        Err(val) => "default".to_string()
+    };
 
     let reg = Region::from_str(r[0]).unwrap();
     let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
     let mut ec2_request_input = DescribeInstancesRequest::default();
     ec2_request_input.instance_ids = None;
-    // ec2_request_input.instance_ids = Some(vec!["something".into()]);
-
     let mut limited_info = Vec::new();
 
-    match client.describe_instances(&ec2_request_input) {
-        Ok(response) => {
-            let instances = rush::ec2_instances::ec2_res_to_instances(response.reservations.unwrap());
-            // if parsed_cmdline.get_bool("-d") {
-            //     println!("{:?}", instances);
-            // };
-            limited_info.extend(ashuf_info_list(instances));
-            // println!("{:?}", limited_info.len());
-
+    match(ec2_cached_data("/tmp".to_string(), &aws_id, 300)) {
+        Ok(instances) => {
+            println!("I'm using cache data");
+            limited_info.extend(instances);
         },
-        Err(error) => {
-            println!("Error: {:?}", error);
+        Err(_) => {
+            println!("I'm in the error case, using cache data");            
+            match client.describe_instances(&ec2_request_input) {
+                Ok(response) => {
+                    let instances = rush::ec2_instances::ec2_res_to_instances(response.reservations.unwrap());
+                    limited_info.extend(ashuf_info_list(instances));
+                    match write_saved_json(&aws_id, &limited_info) {
+                        Ok(msg) => println!("{}", msg),
+                        Err(what_happened) => println!("{}", what_happened),
+                    }
+                },
+                Err(error) => {
+                    println!("Error: {:?}", error);
+                }
+            }
         }
-    }
-
+    };
+    
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, limited_info);
-    // for m in matches.as_ref() {
-    //    println!("{}", m.ip_addresses[0].clone());
-    // }
     let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
-    // Now write the cache
-    match write_saved_json(1, &matches) {
-        Ok(_) => println!("{}", matched_json),
-        Err(result) => println!("{:?}", result)
-    };
+    println!("Matches: {:?}", matches);
 }
