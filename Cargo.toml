@@ -3,17 +3,23 @@ name = "rush"
 version = "0.1.0"
 authors = ["Peter C. Norton <spacey@spacey.org>"]
 
+[profile.release]
+lto = true
+
 [dependencies]
 # serde for json serialization and deserialization
-serde = "0.9"
-serde_json = "0.9"
-serde_derive = "0.9"
+serde = "1.0.11"
+serde_json = "1.0.2"
+serde_derive = "1.0.11"
 # Rusoto AWS API
-rusoto = {git = "https://github.com/pcn/rusoto/", features=["ec2"], branch="bump-reqwest-dependency"}
-# rusoto = {version = "0.23.1", features = ["ec2"]}
+rusoto_core = {version="0.27.0"}
+rusoto_ec2 = {version="0.27.0"}
+
 # regular expressions for when I'm ready to filter fields
-regex = "0.2.1"
+regex = "0.2"
 # Docopt for the easy CLI
-docopt = "0.7"
+docopt = "0.8"
 # rustc-serialize = "0.3" # for docopt - if you're using `derive(RustcDecodable)`
 rand = "0.3"
+# And chrono for time formatting
+chrono = {version = "0.4", features = ["serde"]}
