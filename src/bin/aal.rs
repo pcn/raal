@@ -9,8 +9,6 @@ extern crate regex;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
 
 
 use std::collections::{HashMap, HashSet};
@@ -29,18 +27,21 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-a <api>...] [-r <region>...] [-m | --mode <output_mode>] <pattern>
+  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] <pattern>
   aal (-h | --help)
 
 Options:
   -h --help                 Show this help screen
+  -d --debug                whatever stuff I've broken will get done
+  -a --api=<api>            Which AWS api [default: ec2]
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
+  -m --mode=<output_mode>   Output mode [default: ip_private_line]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
-  -a --api=<api>            Which AWS api [default: ec2]
   -s --ssh-host             Pick a node to ssh to
-  -d --debug                whatever stuff I've broken will get done
-  -m --mode                 Output mode [default: ip_private_line]
+
+
+Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
 ";
 
 
@@ -59,10 +60,10 @@ Options:
 // }
 
 fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
-    /// A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
-    /// This function extracts those addresses, and returns two vectors.  The left
-    /// vector contains the private addresses of an instance, and the right vector contains the
-    /// public addresses of an instance.
+    // A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
+    // This function extracts those addresses, and returns two vectors.  The left
+    // vector contains the private addresses of an instance, and the right vector contains the
+    // public addresses of an instance.
     let mut private = HashSet::new();
     let mut public = HashSet::new();
 
@@ -81,8 +82,8 @@ fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
 }
 
 fn tags_of(instance: &Instance) -> HashMap<String, String> {
-    /// Tags are stored as inconvenient pairs of {"Name": "name", "Value": "Value"}
-    /// turn them into simpler key/value map here
+    // Tags are stored as inconvenient pairs of {"Name": "name", "Value": "Value"}
+    // turn them into simpler key/value map here
     let mut tags = HashMap::new();
     if let Some(ref instance_tags) = instance.tags {
         for tag in instance_tags {
@@ -97,11 +98,11 @@ fn tags_of(instance: &Instance) -> HashMap<String, String> {
 
 
 fn ashuf_info_list(instances: Vec<Instance>) -> Vec<AshufInfo> {
-    /// Take just the data we want for the AshufInfo struct from the
-    /// rusoto::ec2::Instance type, and return a vector of `AshufInfo`
-    ///
-    /// All data is copied from the instances provided, they are consumed
-    /// here.
+    // Take just the data we want for the AshufInfo struct from the
+    // rusoto::ec2::Instance type, and return a vector of `AshufInfo`
+    //
+    // All data is copied from the instances provided, they are consumed
+    // here.
     let mut limited_instances: Vec<AshufInfo> = Vec::new();
     for inst in instances {
         // println!("This instance is {:?}",  inst);
@@ -162,8 +163,20 @@ fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, inst
     matched_instances
 }
 
-fn print_ip_private_line(results) {
-    /// prints the publuc 
+fn print_ip_private_line(results: Vec<AshufInfo>) {
+    // prints the public ip addresses of matches, on per line
+    for r in results {
+        for addr in r.private_ip_addresses {
+            println!("{}", addr);
+        };
+    };
+}
+
+fn print_json_ashuf_info(results: Vec<AshufInfo>) {
+    // prints the public ip addresses of matches, as json
+    println!("{}", serde_json::to_string_pretty(&results).expect("Couldn't serialize config"));
+}
+
 
 fn main() {
     let version = "0.1.0".to_owned();
@@ -181,9 +194,9 @@ fn main() {
     // so they can be combined afterwards.  But for now, let's do one
     // region.
     let r = parsed_cmdline.get_vec("-r");
-    let aws_id = match(env::var(parsed_cmdline.get_str("-e"))) {
+    let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
         Ok(val) => val,
-        Err(val) => "default".to_string()
+        Err(_) => "default".to_string()
     };
 
     let reg = Region::from_str(r[0]).unwrap();
@@ -192,13 +205,13 @@ fn main() {
     ec2_request_input.instance_ids = None;
     let mut limited_info = Vec::new();
 
-    match(ec2_cached_data("/tmp".to_string(), &aws_id, 300)) {
+    match ec2_cached_data("/tmp".to_string(), &aws_id, 300) {
         Ok(instances) => {
-            println!("I'm using cache data");
+            // println!("I'm using cache data");
             limited_info.extend(instances);
         },
         Err(_) => {
-            println!("I'm in the error case, using cache data");            
+            // println!("I'm in the error case, using cache data");            
             match client.describe_instances(&ec2_request_input) {
                 Ok(response) => {
                     let instances = rush::ec2_instances::ec2_res_to_instances(response.reservations.unwrap());
@@ -217,6 +230,14 @@ fn main() {
     
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, limited_info);
-    let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
-    println!("Matches: {:?}", matches);
+    // let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
+    let output_format = parsed_cmdline.get_str("-m");
+
+    if output_format == "ip_private_line" {
+        print_ip_private_line(matches);
+    } else if output_format == "json_ashuf_info" {
+        print_json_ashuf_info(matches);
+    } else if output_format == "enum_name_tag" {
+        print_enum_name_tag(matches);
+    }
 }

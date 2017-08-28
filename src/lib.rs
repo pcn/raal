@@ -113,10 +113,10 @@ pub mod ec2_instances {
             Err(error) => return Err(format!("{} while opening {}", error, "cache file"))
         };
         let difference = Utc::now().signed_duration_since(data.written_time); // Note that the order matters here.
-        println!("Difference is {}", difference);
+        // println!("Difference is {}", difference);
             
         if difference > Duration::seconds(cache_lifetime) {
-            println!("Got data, and the time is valid");
+            // println!("Got data, and the time is valid");
             Ok(data.instance_data)
         } else {
             Err("Expired".to_string())
@@ -134,7 +134,7 @@ pub mod ec2_instances {
         let tmp_pathname = pathname.to_owned() + "tmp";
         let utcnow = Utc::now();
 
-        println!("starting");
+        // println!("starting");
 
         let mut cache_file_new = File::create(Path::new(&tmp_pathname))?;
         let cache_data = CacheData {
@@ -162,7 +162,7 @@ pub mod ec2_instances {
         let mut file_bytes = String::new();
         let mut cache_file = File::open(Path::new(&pathname))?;
 
-        println!("starting read_saved_json; path to the instances file is known, and file is opened");
+        // println!("starting read_saved_json; path to the instances file is known, and file is opened");
         let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
         let instance_data: CacheData = serde_json::from_str(&file_bytes)?;
         Ok(instance_data)
