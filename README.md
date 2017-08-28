@@ -93,11 +93,25 @@ environment:
 2331082
 ```
 
-That's counting a lot of whitespace, but even with most whitespace
-eliminted/minimized, that's a fair amount of data.  So some caching
-would help tremendously.
+That's counting a lot of whitespace, so let's reduce that nonsense:
+
+```
+|P|spacey@masonjar:~$ aws ec2 describe-instances > /tmp/ec2-d-i.json
+|P|spacey@masonjar:~$ cat /tmp/ec2-d-i.json | python -c 'import json,sys; print(json.dumps(json.load(sys.stdin), separators=(",",":")))'  | wc -c
+908573
+```
+
+So even with most whitespace eliminted/minimized, that's a fair amount
+of data.  So some caching would help tremendously.
 
 Also, it's nice to have a cache when amazon is melting down.
+
+The most subtle part of this is that AWS limits API calls across all
+users in an account.  So the more users you have that call the
+`describe-instances` API, and the more often they call it, the more
+likely that you and your peers will cause each other to experience
+delays in getting a response as AWS imposes delays on that MB+ of 
+data that you need from their API.
 
 ## Adding some flexibility in the future.
 
@@ -118,3 +132,12 @@ For right now, the flexibility is limited.  It includes:
 2. Providing different styles of printing out data (e.g. dump json of
    instances, just print all IP addresses, just print one IP address
    randomly).
+   
+It should include:
+
+1. Invoking ssh with a set of flags that can be configured (e.g. some
+   ppl like using the agent, some ppl will want to use an alternative
+   .ssh/config, etc.)
+2. Other APIs like RDS, etc.
+3. Being able to query multiple regions and save and cache those results
+   and use them.
