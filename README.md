@@ -1,5 +1,18 @@
 # raal 
 
+## First things first
+
+I've been very interested in rust for a while, but my progress with it
+has been slow. The work here represents a tool I'm very familiar with
+since I have a bunch of shell scripts that give me access to ssh to
+ec2 instances, similar to what I'm describing below.  This tool is a
+way for me to learn rust with a practical problem I'm familiar with as
+a systems/sre/ops person, but I am still very new to the language.
+
+I am still totally in the honeymoon phase with rust too.
+
+WRT "why not python/ruby/perl/lua" ... I'm not learning those.
+
 ## A bit about working in AWS
 This is a tool that helps me access nodes in AWS the way I find most useful.
 
