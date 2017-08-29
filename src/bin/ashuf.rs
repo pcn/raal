@@ -22,40 +22,26 @@ use regex::Regex;
 use rush::ec2_instances::{AshufInfo, write_saved_json, ec2_cached_data};
 
 const USAGE: &'static str = "
-Query amazon for a random choice among some set of resources
-
-Display matching resources as a JSON document.
+Ssh to an ec2 instance via a regex match of their 'Name' tag.
 
 Usage:
-  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] <pattern>
+  ashuf [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-r <region>...] [-s <ssh-path>] <pattern>
   aal (-h | --help)
 
 Options:
   -h --help                 Show this help screen
   -d --debug                whatever stuff I've broken will get done
-  -a --api=<api>            Which AWS api [default: ec2]
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
-  -m --mode=<output_mode>   Output mode [default: ip_private_line]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
+  -s <ssh-path>             The path to the ssh binary [default: /usr/bin/ssh]
 
-Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
+
+If customizations should be done to ssh, (e.g. I like 
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \"$@\"
+in these cases) then you can create an ssh wrapper and pass that wrapper into this program.
 ";
 
-
-// // A flat structure to make searching for an instance faster, with a
-// // link back to the instance.
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// struct AshufInfo {
-//     instance_id: String,
-//     private_ip_addresses: Vec<String>,
-//     public_ip_addresses: Vec<String>,
-//     state_name: String,
-//     launch_time: String,
-//     availability_zone: String,
-//     image_ami: String,
-//     tags: HashMap<String, String>,
-// }
 
 fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
     // A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
