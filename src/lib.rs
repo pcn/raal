@@ -5,6 +5,8 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate chrono;
 extern crate regex;
+extern crate rusoto_core;
+extern crate rusoto_ec2;
 
 use chrono::prelude::*;
 
@@ -53,6 +55,9 @@ pub mod ec2_instances {
     use std::collections::{HashMap, HashSet};
     use regex::Regex;
 
+    use rusoto_core::{Region, default_tls_client};
+    use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance};
+
 
     use chrono::prelude::*;
     use chrono::Duration;
@@ -88,6 +93,12 @@ pub mod ec2_instances {
         instance_data: Vec<AshufInfo>,
     }
 
+
+    pub fn read_via_cache(client: Ec2Client,  region, cache_ttl, account_id) {
+        let creds = raal::auth::credentials_provider(None, None);
+        // XXx when ready, map over the regions provided and cache those
+        // so they can be combined afterwards.  But for now, let's do one
+        // region.
 
 
     pub fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
