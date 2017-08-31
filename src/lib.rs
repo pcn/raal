@@ -5,8 +5,6 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate chrono;
 extern crate regex;
-extern crate rusoto_core;
-extern crate rusoto_ec2;
 
 use chrono::prelude::*;
 
@@ -44,7 +42,8 @@ pub mod auth {
 // Note: do I want to have a flag or a struct to define whether or not I should do some of these things?  Like a
 // D_NO_CLOBBER_CACHE_FILE or something?
 pub mod ec2_instances {
-    use rusoto_ec2::{Instance, Reservation};
+    use rusoto_core::{Region, default_tls_client};
+    use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance, Reservation};
     // use std::collections::HashMap;
 
     use std::fs::{File, rename};
@@ -53,10 +52,9 @@ pub mod ec2_instances {
     use std::io::prelude::*;
     use std::io;
     use std::collections::{HashMap, HashSet};
+    use std::str::FromStr;
     use regex::Regex;
 
-    use rusoto_core::{Region, default_tls_client};
-    use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance};
 
 
     use chrono::prelude::*;
@@ -94,11 +92,45 @@ pub mod ec2_instances {
     }
 
 
-    pub fn read_via_cache(client: Ec2Client,  region, cache_ttl, account_id) {
-        let creds = raal::auth::credentials_provider(None, None);
+    pub fn read_via_cache(region_name: &String, cache_ttl: i64, aws_account_id: &String) -> Vec<AshufInfo> {
+        
+        // let mut limited_info = Vec::new();
+        let limited_info = match ec2_cached_data("/tmp".to_string(), &aws_account_id, 300) {
+            Ok(instances) => {
+                // println!("I'm using cache data");
+                instances
+            },
+            Err(_) => {
+                // println!("I'm in the error case, using cache data");
+                let creds = ::auth::credentials_provider(None, None);
+                let reg = Region::from_str(region_name).unwrap();
+                let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
+                
+                let mut ec2_request_input = DescribeInstancesRequest::default();
+                ec2_request_input.instance_ids = None;
+                match client.describe_instances(&ec2_request_input) {
+                    Ok(response) => {
+                        let instances = ec2_res_to_instances(response.reservations.unwrap());
+                        let instances_data = ashuf_info_list(instances);
+                        match write_saved_json(&aws_account_id, &instances_data) {
+                            Ok(msg) => println!("{}", msg),
+                            Err(what_happened) => println!("{}", what_happened),
+                        };
+                        instances_data
+                    },
+                    Err(error) => {
+                        // println!("Error: {:?}", error);
+                        Vec::new()
+                    }
+                }
+            }
+        };
+
         // XXx when ready, map over the regions provided and cache those
         // so they can be combined afterwards.  But for now, let's do one
         // region.
+        limited_info
+    }
 
 
     pub fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
@@ -136,6 +168,7 @@ pub mod ec2_instances {
         }
         tags
     }
+    
 
     pub fn ashuf_info_list(instances: Vec<Instance>) -> Vec<AshufInfo> {
         // Take just the data we want for the AshufInfo struct from the
@@ -163,6 +196,7 @@ pub mod ec2_instances {
         }
         limited_instances
     }
+    
 
     // returns OK on the left, and Not OK on the right.
     // Let's define that so that on the left are matched instances,
@@ -184,6 +218,7 @@ pub mod ec2_instances {
             });
         (matched, unmatched)
     }
+    
 
     pub fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, instances: Vec<AshufInfo>) -> Vec<AshufInfo> {
         let rexpr = Regex::new(&pattern).unwrap();
@@ -200,8 +235,7 @@ pub mod ec2_instances {
 
         matched_instances
     }
-
-
+    
 
     pub fn ec2_res_to_instances(reservations: Vec<Reservation>) -> Vec<Instance> {
         // The ec2 `describe-instances` call returns a structure that describe
@@ -221,6 +255,7 @@ pub mod ec2_instances {
         }
         instances
     }
+    
 
     pub fn ec2_cached_data(cache_path_dir: String, account: &String, cache_lifetime: i64) -> Result<Vec<AshufInfo>, String> {
         // Look at the file at the provided path, and if the age of the

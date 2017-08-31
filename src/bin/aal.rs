@@ -1,10 +1,6 @@
 // #[macro_use] extern crate lazy_static;
-
-
 extern crate docopt;
-extern crate rusoto_core;
-extern crate rusoto_ec2;
-extern crate rush;
+extern crate raal;
 extern crate regex;
 extern crate rand;
 extern crate serde;
@@ -12,14 +8,11 @@ extern crate serde_json;
 
 
 use std::collections::{HashMap, HashSet};
-use rusoto_core::{Region, default_tls_client};
-use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance};
-use std::str::FromStr;
 use std::env;
 use docopt::Docopt;
 use regex::Regex;
 
-use rush::ec2_instances::{AshufInfo, write_saved_json, ec2_cached_data, instances_matching_regex, ashuf_info_list};
+use raal::ec2_instances::{AshufInfo, read_via_cache, instances_matching_regex};
 
 const USAGE: &'static str = "
 Query amazon for a random choice among some set of resources
@@ -36,7 +29,7 @@ Options:
   -a --api=<api>            Which AWS api [default: ec2]
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
-  -m --mode=<output_mode>   Output mode [default: ip_private_line]
+  -m --mode=<output_mode>   Output mode [default: json_ashuf_info]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
 
 Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
@@ -58,7 +51,7 @@ fn print_json_ashuf_info(results: Vec<AshufInfo>) {
 
 fn print_enum_name_tag(results: Vec<AshufInfo>) {
     // prints a list of the names:addresses of instances, one pre line
-    println!("This isn't really implemented at the moment");
+    println!("When this works, sort and print a list, with numbers, of matches");
 }
 
 
@@ -73,55 +66,18 @@ fn main() {
         println!("Command line parsed to {:?}", parsed_cmdline);
         println!("Pattern is {:?}", pattern);
     };
-    let creds = rush::auth::credentials_provider(None, None);
-    // XXx when ready, map over the regions provided and cache those
-    // so they can be combined afterwards.  But for now, let's do one
-    // region.
     let r = parsed_cmdline.get_vec("-r");
     let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
         Ok(val) => val,
         Err(_) => "default".to_string()
     };
 
-    let reg = Region::from_str(r[0]).unwrap();
-    let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
-    let mut ec2_request_input = DescribeInstancesRequest::default();
-    ec2_request_input.instance_ids = None;
-    let mut limited_info = Vec::new();
     let cache_ttl = 300;
 
-    let all_instances = match read_via_cache(client, region, cache_ttl, accnt) {
-        Ok(instances) => instances,
-        Err(msg) => {
-            println!("Error getting instances: {:?}", msg);
-            
-                
-    
-    match ec2_cached_data("/tmp".to_string(), &aws_id, 300) {
-        Ok(instances) => {
-            // println!("I'm using cache data");
-            limited_info.extend(instances);
-        },
-        Err(_) => {
-            // println!("I'm in the error case, using cache data");            
-            match client.describe_instances(&ec2_request_input) {
-                Ok(response) => {
-                    let instances = rush::ec2_instances::ec2_res_to_instances(response.reservations.unwrap());
-                    limited_info.extend(ashuf_info_list(instances));
-                    match write_saved_json(&aws_id, &limited_info) {
-                        Ok(msg) => println!("{}", msg),
-                        Err(what_happened) => println!("{}", what_happened),
-                    }
-                },
-                Err(error) => {
-                    println!("Error: {:?}", error);
-                }
-            }
-        }
-    };
-    
+    let all_instances = read_via_cache(&r[0].to_string(), cache_ttl, &aws_id);
+    // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
-    let matches = instances_matching_regex(pattern, tags, limited_info);
+    let matches = instances_matching_regex(pattern, tags, all_instances);
     // let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
     let output_format = parsed_cmdline.get_str("-m");
 
