@@ -4,6 +4,7 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate chrono;
+extern crate regex;
 
 use chrono::prelude::*;
 
@@ -41,14 +42,20 @@ pub mod auth {
 // Note: do I want to have a flag or a struct to define whether or not I should do some of these things?  Like a
 // D_NO_CLOBBER_CACHE_FILE or something?
 pub mod ec2_instances {
-    use rusoto_ec2::{Instance, Reservation};
-    use std::collections::HashMap;
+    use rusoto_core::{Region, default_tls_client};
+    use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance, Reservation};
+    // use std::collections::HashMap;
 
     use std::fs::{File, rename};
     use std::path::Path;
     use std::error::Error;
     use std::io::prelude::*;
     use std::io;
+    use std::collections::{HashMap, HashSet};
+    use std::str::FromStr;
+    use regex::Regex;
+
+
 
     use chrono::prelude::*;
     use chrono::Duration;
@@ -65,6 +72,7 @@ pub mod ec2_instances {
     // A flat structure to make searching for an instance faster, with a
     // link back to the instance.
 
+    // TODO: implement a sort on name tags 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct AshufInfo {
         pub instance_id: String,
@@ -84,12 +92,157 @@ pub mod ec2_instances {
     }
 
 
+    pub fn read_via_cache(region_name: &String, cache_ttl: i64, aws_account_id: &String) -> Vec<AshufInfo> {
+        
+        // let mut limited_info = Vec::new();
+        let limited_info = match ec2_cached_data("/tmp".to_string(), &aws_account_id, 300) {
+            Ok(instances) => {
+                // println!("I'm using cache data");
+                instances
+            },
+            Err(_) => {
+                // println!("I'm in the error case, using cache data");
+                let creds = ::auth::credentials_provider(None, None);
+                let reg = Region::from_str(region_name).unwrap();
+                let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
+                
+                let mut ec2_request_input = DescribeInstancesRequest::default();
+                ec2_request_input.instance_ids = None;
+                match client.describe_instances(&ec2_request_input) {
+                    Ok(response) => {
+                        let instances = ec2_res_to_instances(response.reservations.unwrap());
+                        let instances_data = ashuf_info_list(instances);
+                        match write_saved_json(&aws_account_id, &instances_data) {
+                            Ok(msg) => println!("{}", msg),
+                            Err(what_happened) => println!("{}", what_happened),
+                        };
+                        instances_data
+                    },
+                    Err(error) => {
+                        // println!("Error: {:?}", error);
+                        Vec::new()
+                    }
+                }
+            }
+        };
+
+        // XXx when ready, map over the regions provided and cache those
+        // so they can be combined afterwards.  But for now, let's do one
+        // region.
+        limited_info
+    }
+
+
+    pub fn ip_addresses_of(instance: &Instance) -> (Vec<String>, Vec<String>) {
+        // A host can have either an ENI in vpc, or a private IP address from an EIP (classic)
+        // This function extracts those addresses, and returns two vectors.  The left
+        // vector contains the private addresses of an instance, and the right vector contains the
+        // public addresses of an instance.
+        let mut private = HashSet::new();
+        let mut public = HashSet::new();
+
+        if let Some(ref network_interfaces) = instance.network_interfaces {
+            for interface in network_interfaces {
+                if let Some(ref addr) = interface.private_ip_address {
+                    private.insert(addr.clone());
+                }
+            }
+        }
+
+        instance.private_ip_address.as_ref().map(|addr| private.insert(addr.clone()));
+        instance.public_ip_address.as_ref().map(|addr| public.insert(addr.clone()));
+
+        (vec!(private.into_iter().collect()), vec!(public.into_iter().collect()))
+    }
+
+    pub fn tags_of(instance: &Instance) -> HashMap<String, String> {
+        // Tags are stored as inconvenient pairs of {"Name": "name", "Value": "Value"}
+        // turn them into simpler key/value map here
+        let mut tags = HashMap::new();
+        if let Some(ref instance_tags) = instance.tags {
+            for tag in instance_tags {
+                if let (&Some(ref key), &Some(ref val)) = (&tag.key, &tag.value) {
+                    tags.insert(key.clone(), val.clone());
+                }
+            }
+        }
+        tags
+    }
+    
+
+    pub fn ashuf_info_list(instances: Vec<Instance>) -> Vec<AshufInfo> {
+        // Take just the data we want for the AshufInfo struct from the
+        // rusoto::ec2::Instance type, and return a vector of `AshufInfo`
+        //
+        // All data is copied from the instances provided, they are consumed
+        // here.
+        let mut limited_instances: Vec<AshufInfo> = Vec::new();
+        for inst in instances {
+            // println!("This instance is {:?}",  inst);
+            let (private_addrs, public_addrs) = ip_addresses_of(&inst);
+            let tags = tags_of(&inst);
+            // println!("{:?}", addrs);
+            let new_asi = AshufInfo {
+                instance_id: String::from(inst.instance_id.unwrap()),
+                private_ip_addresses: private_addrs,
+                public_ip_addresses: public_addrs,
+                state_name: String::from(inst.state.unwrap().name.unwrap()),
+                launch_time: String::from(inst.launch_time.unwrap()),
+                availability_zone: String::from(inst.placement.unwrap().availability_zone.unwrap()),
+                image_ami: String::from(inst.image_id.unwrap()),
+                tags: tags,
+            };
+            limited_instances.push(new_asi);
+        }
+        limited_instances
+    }
+    
+
+    // returns OK on the left, and Not OK on the right.
+    // Let's define that so that on the left are matched instances,
+    // and the right  is unmatched instances.
+    pub fn partition_matches(rexpr: &Regex, tag: &String, instances: Vec<AshufInfo>) -> (Vec<AshufInfo>,  Vec<AshufInfo>) {
+        let (matched, unmatched) = instances
+            .into_iter()
+            .partition(|inst| {
+                if let Some(tval) = inst.tags.get(tag) {
+                    if rexpr.is_match(tval) {  // Match on the value (assuming it can't be None?)
+                        // println!("Matched {:?}", tval);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            });
+        (matched, unmatched)
+    }
+    
+
+    pub fn instances_matching_regex(pattern: String, interesting_tags: Vec<String>, instances: Vec<AshufInfo>) -> Vec<AshufInfo> {
+        let rexpr = Regex::new(&pattern).unwrap();
+        let mut unmatched_instances = Vec::new();
+        let mut matched_instances = Vec::new();
+        unmatched_instances.extend_from_slice(instances.as_slice());
+
+        for ref tag in interesting_tags {
+            let (m, u) = partition_matches(&rexpr, tag, unmatched_instances);
+            // Re-bind unmatched instances for the next loop
+            unmatched_instances = u;
+            matched_instances.extend_from_slice(m.as_slice());
+        }
+
+        matched_instances
+    }
+    
+
     pub fn ec2_res_to_instances(reservations: Vec<Reservation>) -> Vec<Instance> {
-        /// The ec2 `describe-instances` call returns a structure that describe
-        /// reservations, and the reservations contain instances.
-        /// Since I pretty much never, ever, ever need to know about reservations,
-        /// and always care about instances, I am removing the reservations info
-        /// and creating a vector of instances.
+        // The ec2 `describe-instances` call returns a structure that describe
+        // reservations, and the reservations contain instances.
+        // Since I pretty much never, ever, ever need to know about reservations,
+        // and always care about instances, I am removing the reservations info
+        // and creating a vector of instances.
 
 
         let mut instances = Vec::new();
@@ -102,13 +255,14 @@ pub mod ec2_instances {
         }
         instances
     }
+    
 
     pub fn ec2_cached_data(cache_path_dir: String, account: &String, cache_lifetime: i64) -> Result<Vec<AshufInfo>, String> {
-        /// Look at the file at the provided path, and if the age of the
-        /// file is less than the specified age, get ec2 instance info
-        /// from it instead of from the api.
-        /// Otherwise go through the API and return that data
-        let data = match(read_saved_json(&account)) {
+        // Look at the file at the provided path, and if the age of the
+        // file is less than the specified age, get ec2 instance info
+        // from it instead of from the api.
+        // Otherwise go through the API and return that data
+        let data = match read_saved_json(&account) {
             Ok(saved_data) => saved_data,
             Err(error) => return Err(format!("{} while opening {}", error, "cache file"))
         };

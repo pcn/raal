@@ -1,16 +1,16 @@
 // #[macro_use] extern crate lazy_static;
 extern crate docopt;
 extern crate raal;
-extern crate regex;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
 
 
-use std::collections::{HashMap, HashSet};
 use std::env;
+use std::process::Command;
+use std::os::unix::process::CommandExt;
 use docopt::Docopt;
-use regex::Regex;
+use rand::{sample, thread_rng};
 
 use raal::ec2_instances::{AshufInfo, read_via_cache, instances_matching_regex};
 
@@ -20,38 +20,35 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] <pattern>
-  aal (-h | --help)
+  ashuf [-c | --no-cache] [-e <env_name>] [-d] [-q] [-a <api>...] [-r <region>...] <pattern> [<more_ssh_options>...]
+  ashuf (-h | --help)
 
 Options:
   -h --help                 Show this help screen
-  -d --debug                whatever stuff I've broken will get done
+  -d                        Debug output whatever stuff I've broken will get done
   -a --api=<api>            Which AWS api [default: ec2]
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
-  -m --mode=<output_mode>   Output mode [default: json_ashuf_info]
+  -q                        Quiet (less output)
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
+  -s --ssh-command=<cmd>    Path to ssh or a wrapper [default: /usr/bin/ssh]
 
-Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
 ";
 
-fn print_ip_private_line(results: Vec<AshufInfo>) {
-    // prints the public ip addresses of matches, on per line
-    for r in results {
-        for addr in r.private_ip_addresses {
-            println!("{}", addr);
-        };
-    };
-}
+fn launch_ssh(ssh_path: String, more_ssh_options: Vec<String>, info: AshufInfo) {
+    let mut args = vec!["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null" ];
+    
+    for arg in &more_ssh_options {
+        args.push(&arg);
+    }
+    args.push(&info.private_ip_addresses[0]);
+    
+    let could_not_exec = Command::new(ssh_path.clone())
+        .args(args.clone())
+        .exec();
 
-fn print_json_ashuf_info(results: Vec<AshufInfo>) {
-    // prints the public ip addresses of matches, as json
-    println!("{}", serde_json::to_string_pretty(&results).expect("Couldn't serialize config"));
-}
-
-fn print_enum_name_tag(results: Vec<AshufInfo>) {
-    // prints a list of the names:addresses of instances, one pre line
-    println!("When this works, sort and print a list, with numbers, of matches");
+    // let could_not_exec = Command::new("/usr/bin/env").exec();
+    println!("Couldn't exec {} {:?} because {:?}", ssh_path, args, could_not_exec);
 }
 
 
@@ -78,14 +75,21 @@ fn main() {
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);
-    // let matched_json = serde_json::to_string_pretty(&matches).expect("Couldn't serialize config");
-    let output_format = parsed_cmdline.get_str("-m");
+    let ssh_path = parsed_cmdline.get_str("-s");
+    let more_ssh_options = {
+        let ssh_options = parsed_cmdline.get_vec("<more_ssh_options>");
+        let mut opts = Vec::new();
+        for opt in &ssh_options {
+            opts.push(opt.to_string());
+        };
+        opts
+    };
+                
+        
 
-    if output_format == "ip_private_line" {
-        print_ip_private_line(matches);
-    } else if output_format == "json_ashuf_info" {
-        print_json_ashuf_info(matches);
-    } else if output_format == "enum_name_tag" {
-        print_enum_name_tag(matches);
-    }
+    let mut rng = thread_rng();
+    let sample_instance = sample(&mut rng, matches, 1);
+
+    println!("{:?}", sample_instance[0]);
+    launch_ssh(ssh_path.to_string(), more_ssh_options, sample_instance[0].clone());
 }
