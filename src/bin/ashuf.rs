@@ -12,7 +12,7 @@ use std::os::unix::process::CommandExt;
 use docopt::Docopt;
 use rand::{sample, thread_rng};
 
-use raal::ec2_instances::{AshufInfo, read_via_cache, instances_matching_regex};
+use raal::ec2_instances::{AshufInfo, read_without_cache, read_via_cache, instances_matching_regex};
 
 const USAGE: &'static str = "
 Query amazon for a random choice among some set of resources
@@ -20,16 +20,14 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c | --no-cache] [-e <env_name>] [-d] [-q] [-a <api>...] [-r <region>...] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-e <env_name>] [-d <directory>] [-r <region>...] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
   -h --help                 Show this help screen
-  -d                        Debug output whatever stuff I've broken will get done
-  -a --api=<api>            Which AWS api [default: ec2]
-  -c --no-cache             Bypass the cached resources info
+  -d                        Directory for cache and configuration files [default: $HOME/.raal]
+  -c                        Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
-  -q                        Quiet (less output)
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
   -s --ssh-command=<cmd>    Path to ssh or a wrapper [default: /usr/bin/ssh]
 
@@ -69,9 +67,16 @@ fn main() {
         Err(_) => "default".to_string()
     };
 
+    let bypass_cache = parsed_cmdline.get_bool("-c");
     let cache_ttl = 300;
-
-    let all_instances = read_via_cache(&r[0].to_string(), cache_ttl, &aws_id);
+    let tmpdir = parsed_cmdline.get_str("-t").to_string();
+    let all_instances = match bypass_cache {
+        true => {
+            println!("Bypassing the cache");
+            read_without_cache(&r[0].to_string(), &tmpdir, &aws_id)
+        },
+        false => read_via_cache(&r[0].to_string(), &tmpdir, cache_ttl, &aws_id),
+    };
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);
