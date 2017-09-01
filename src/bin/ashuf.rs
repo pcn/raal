@@ -4,6 +4,7 @@ extern crate raal;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
+extern crate shellexpand;
 
 
 use std::env;
@@ -20,16 +21,17 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c] [-e <env_name>] [-d <directory>] [-r <region>...] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-e <env_name>] [-d <directory>] [-t <cache_dir>] [-r <region>...] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
   -h --help                 Show this help screen
-  -d                        Directory for cache and configuration files [default: $HOME/.raal]
+  -d                        Debug stuff
   -c                        Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
   -s --ssh-command=<cmd>    Path to ssh or a wrapper [default: /usr/bin/ssh]
+  -t <cache_dir>            Directory for cached data [default: ~/.raal]
 
 ";
 
@@ -69,7 +71,10 @@ fn main() {
 
     let bypass_cache = parsed_cmdline.get_bool("-c");
     let cache_ttl = 300;
-    let tmpdir = parsed_cmdline.get_str("-t").to_string();
+    let tmpdir = shellexpand::full(parsed_cmdline.get_str("-t"))
+        .unwrap()
+        .to_string();
+
     let all_instances = match bypass_cache {
         true => {
             println!("Bypassing the cache");

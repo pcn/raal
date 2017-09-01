@@ -5,6 +5,7 @@ extern crate regex;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
+extern crate shellexpand;
 
 
 use std::env;
@@ -18,7 +19,7 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] [-t <tmp_dir>] <pattern>
+  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] [-t <cache_dir>] <pattern>
   aal (-h | --help)
 
 Options:
@@ -28,7 +29,7 @@ Options:
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
   -m --mode=<output_mode>   Output mode [default: json_ashuf_info]
-  -t                        Directory for cached data
+  -t <cache_dir>            Directory for cached data [default: ~/.raal]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
 
 Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
@@ -66,7 +67,9 @@ fn main() {
         println!("Pattern is {:?}", pattern);
     };
     let r = parsed_cmdline.get_vec("-r");
-    let tmpdir = parsed_cmdline.get_str("-t").to_string();
+    let tmpdir = shellexpand::full(parsed_cmdline.get_str("-t"))
+        .unwrap()
+        .to_string();
     let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
         Ok(val) => val,
         Err(_) => "default".to_string()
