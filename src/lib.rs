@@ -66,8 +66,6 @@ pub mod ec2_instances {
     // Also in the future, bless a tuple of environment variable that will
     // distinguish account data (Account, API, region) seems reasonable.
     // "global" seems like an appropriate choice for global APIs like IAM, route53.
-    static cache_dir: &'static str= "/tmp/"; 
-
 
     // A flat structure to make searching for an instance faster, with a
     // link back to the instance.
@@ -92,38 +90,40 @@ pub mod ec2_instances {
     }
 
 
-    pub fn read_via_cache(region_name: &String, cache_ttl: i64, aws_account_id: &String) -> Vec<AshufInfo> {
+    pub fn read_without_cache(region_name: &String, cache_dir: &String, aws_account_id: &String) -> Vec<AshufInfo> {
+        let creds = ::auth::credentials_provider(None, None);
+        let reg = Region::from_str(region_name).unwrap();
+        let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
+        
+        let mut ec2_request_input = DescribeInstancesRequest::default();
+        ec2_request_input.instance_ids = None;
+        match client.describe_instances(&ec2_request_input) {
+            Ok(response) => {
+                let instances = ec2_res_to_instances(response.reservations.unwrap());
+                let instances_data = ashuf_info_list(instances);
+                match write_saved_json(&aws_account_id, &cache_dir, &region_name, &instances_data) {
+                    Ok(msg) => println!("{}", msg),
+                    Err(what_happened) => println!("{}", what_happened),
+                };
+                instances_data
+            },
+            Err(error) => {
+                println!("Error when invoking describe_instances: {:?}", error);
+                Vec::new()
+            }
+        }
+    }
+        
+    
+    pub fn read_via_cache(region_name: &String, cache_dir: &String, cache_ttl: i64, aws_account_id: &String) -> Vec<AshufInfo> {
         
         // let mut limited_info = Vec::new();
-        let limited_info = match ec2_cached_data("/tmp".to_string(), &aws_account_id, 300) {
+        let limited_info = match ec2_cached_data(cache_dir.clone(), &aws_account_id, &region_name, cache_ttl) {
             Ok(instances) => {
                 // println!("I'm using cache data");
                 instances
             },
-            Err(_) => {
-                // println!("I'm in the error case, using cache data");
-                let creds = ::auth::credentials_provider(None, None);
-                let reg = Region::from_str(region_name).unwrap();
-                let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
-                
-                let mut ec2_request_input = DescribeInstancesRequest::default();
-                ec2_request_input.instance_ids = None;
-                match client.describe_instances(&ec2_request_input) {
-                    Ok(response) => {
-                        let instances = ec2_res_to_instances(response.reservations.unwrap());
-                        let instances_data = ashuf_info_list(instances);
-                        match write_saved_json(&aws_account_id, &instances_data) {
-                            Ok(msg) => println!("{}", msg),
-                            Err(what_happened) => println!("{}", what_happened),
-                        };
-                        instances_data
-                    },
-                    Err(error) => {
-                        // println!("Error: {:?}", error);
-                        Vec::new()
-                    }
-                }
-            }
+            Err(_) => read_without_cache(region_name, cache_dir, aws_account_id)
         };
 
         // XXx when ready, map over the regions provided and cache those
@@ -164,6 +164,7 @@ pub mod ec2_instances {
                 if let (&Some(ref key), &Some(ref val)) = (&tag.key, &tag.value) {
                     tags.insert(key.clone(), val.clone());
                 }
+
             }
         }
         tags
@@ -257,22 +258,23 @@ pub mod ec2_instances {
     }
     
 
-    pub fn ec2_cached_data(cache_path_dir: String, account: &String, cache_lifetime: i64) -> Result<Vec<AshufInfo>, String> {
+    pub fn ec2_cached_data(cache_path_dir: String, account: &String, region_name: &String, cache_ttl: i64) -> Result<Vec<AshufInfo>, String> {
         // Look at the file at the provided path, and if the age of the
         // file is less than the specified age, get ec2 instance info
         // from it instead of from the api.
         // Otherwise go through the API and return that data
-        let data = match read_saved_json(&account) {
+        let data = match read_saved_json(&cache_path_dir, &account, &region_name) {
             Ok(saved_data) => saved_data,
             Err(error) => return Err(format!("{} while opening {}", error, "cache file"))
         };
         let difference = Utc::now().signed_duration_since(data.written_time); // Note that the order matters here.
-        // println!("Difference is {}", difference);
+        println!("Difference is {}", difference);
             
-        if difference > Duration::seconds(cache_lifetime) {
-            // println!("Got data, and the time is valid");
+        if difference > Duration::seconds(cache_ttl) {
+            println!("Got data, and the time is valid");
             Ok(data.instance_data)
         } else {
+            println!("Got data, and the time expired");            
             Err("Expired".to_string())
         }
     }
@@ -280,15 +282,14 @@ pub mod ec2_instances {
     /// This function is for saving the data from a call to the API. It's for
     /// this side-effect only
     // XXX: add support for (API, region)
-    pub fn write_saved_json(account: &String, data: &Vec<AshufInfo>) -> io::Result<String> {
+    pub fn write_saved_json(account: &String, cache_dir: &String, region_name: &String, data: &Vec<AshufInfo>) -> io::Result<String> {
         // Interesting: in rust you can concat a &str onto a String.
         // Deref coercecions may be an interesting topic?
-        let pathname = format!("{}/{}_ec2_instances.json", cache_dir, account);
+        let pathname = format!("{}/{}_{}_ec2_instances.json", cache_dir, account, region_name);
         
-        let tmp_pathname = pathname.to_owned() + "tmp";
-        let utcnow = Utc::now();
+        let tmp_pathname = pathname.to_owned() + ".tmp";
 
-        // println!("starting");
+        println!("starting, writing to {}", tmp_pathname);
 
         let mut cache_file_new = File::create(Path::new(&tmp_pathname))?;
         let cache_data = CacheData {
@@ -311,13 +312,13 @@ pub mod ec2_instances {
         Ok("Cache written out".to_string())
     }
 
-    pub fn read_saved_json(account: &String) -> io::Result<CacheData> {
-        let pathname = format!("{}/{}_ec2_instances.json", cache_dir, account);
+    pub fn read_saved_json(account: &String, cache_dir: &String, region_name: &String) -> io::Result<CacheData> {
+        let pathname = format!("{}/{}_{}_ec2_instances.json", cache_dir, account, region_name);
         let mut file_bytes = String::new();
         let mut cache_file = File::open(Path::new(&pathname))?;
 
         // println!("starting read_saved_json; path to the instances file is known, and file is opened");
-        let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
+        // let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
         let instance_data: CacheData = serde_json::from_str(&file_bytes)?;
         Ok(instance_data)
     }

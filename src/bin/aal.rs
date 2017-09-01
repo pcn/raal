@@ -5,12 +5,11 @@ extern crate regex;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
+extern crate shellexpand;
 
 
-use std::collections::{HashMap, HashSet};
 use std::env;
 use docopt::Docopt;
-use regex::Regex;
 
 use raal::ec2_instances::{AshufInfo, read_via_cache, instances_matching_regex};
 
@@ -20,7 +19,7 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] <pattern>
+  aal [-c | --no-cache] [-e <env_name>]  [-d | --debug] [-m <output_mode>] [-a <api>...] [-r <region>...] [-t <cache_dir>] <pattern>
   aal (-h | --help)
 
 Options:
@@ -30,6 +29,7 @@ Options:
   -c --no-cache             Bypass the cached resources info
   -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
   -m --mode=<output_mode>   Output mode [default: json_ashuf_info]
+  -t <cache_dir>            Directory for cached data [default: ~/.raal]
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
 
 Output modes include: ip_private_line, json_ashuf_info, enum_name_tag
@@ -67,6 +67,9 @@ fn main() {
         println!("Pattern is {:?}", pattern);
     };
     let r = parsed_cmdline.get_vec("-r");
+    let tmpdir = shellexpand::full(parsed_cmdline.get_str("-t"))
+        .unwrap()
+        .to_string();
     let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
         Ok(val) => val,
         Err(_) => "default".to_string()
@@ -74,7 +77,7 @@ fn main() {
 
     let cache_ttl = 300;
 
-    let all_instances = read_via_cache(&r[0].to_string(), cache_ttl, &aws_id);
+    let all_instances = read_via_cache(&r[0].to_string(), &tmpdir, cache_ttl, &aws_id);
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);
