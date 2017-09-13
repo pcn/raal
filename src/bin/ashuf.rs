@@ -2,8 +2,6 @@
 extern crate docopt;
 extern crate raal;
 extern crate rand;
-extern crate serde;
-extern crate serde_json;
 extern crate shellexpand;
 
 
@@ -21,7 +19,7 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c] [-e <env_name>] [-d <directory>] [-t <cache_dir>] [-r <region>...] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-d] [-e <env_name>] [-t <cache_dir>] [-r <region>...] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
@@ -36,8 +34,9 @@ Options:
 ";
 
 fn launch_ssh(ssh_path: String, more_ssh_options: Vec<String>, info: AshufInfo) {
+    println!("Mark");
     let mut args = vec!["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null" ];
-    
+
     for arg in &more_ssh_options {
         args.push(&arg);
     }
@@ -71,16 +70,16 @@ fn main() {
 
     let bypass_cache = parsed_cmdline.get_bool("-c");
     let cache_ttl = 300;
-    let tmpdir = shellexpand::full(parsed_cmdline.get_str("-t"))
+    let cache_dir = shellexpand::full(parsed_cmdline.get_str("-t"))
         .unwrap()
         .to_string();
 
     let all_instances = match bypass_cache {
         true => {
             println!("Bypassing the cache");
-            read_without_cache(&r[0].to_string(), &tmpdir, &aws_id)
+            read_without_cache(&cache_dir, &r[0].to_string(), &aws_id)
         },
-        false => read_via_cache(&r[0].to_string(), &tmpdir, cache_ttl, &aws_id),
+        false => read_via_cache(&cache_dir, &r[0].to_string(), &aws_id, cache_ttl),
     };
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
@@ -94,12 +93,13 @@ fn main() {
         };
         opts
     };
-                
-        
-
     let mut rng = thread_rng();
-    let sample_instance = sample(&mut rng, matches, 1);
-
-    println!("{:?}", sample_instance[0]);
-    launch_ssh(ssh_path.to_string(), more_ssh_options, sample_instance[0].clone());
+    let sampled_instance = sample(&mut rng, matches.clone(), 1);
+    if sampled_instance.len() == 0 {
+        println!("The list of matches is {:?}", matches);
+        println!("But the sample returned is 0 length");
+    } else {
+        println!("{:?}", sampled_instance[0]);
+    }
+    launch_ssh(ssh_path.to_string(), more_ssh_options, sampled_instance[0].clone());
 }

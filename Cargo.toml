@@ -24,3 +24,4 @@ rand = "0.3"
 # And chrono for time formatting
 chrono = {version = "0.4", features = ["serde"]}
 shellexpand = "1.0.0"
+toml = "0.4.2"

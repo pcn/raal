@@ -67,7 +67,7 @@ fn main() {
         println!("Pattern is {:?}", pattern);
     };
     let r = parsed_cmdline.get_vec("-r");
-    let tmpdir = shellexpand::full(parsed_cmdline.get_str("-t"))
+    let cache_dir = shellexpand::full(parsed_cmdline.get_str("-t"))
         .unwrap()
         .to_string();
     let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
@@ -77,7 +77,7 @@ fn main() {
 
     let cache_ttl = 300;
 
-    let all_instances = read_via_cache(&r[0].to_string(), &tmpdir, cache_ttl, &aws_id);
+    let all_instances = read_via_cache(&cache_dir, &r[0].to_string(), &aws_id, cache_ttl);
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);

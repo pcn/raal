@@ -5,6 +5,7 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate chrono;
 extern crate regex;
+extern crate toml;
 
 use chrono::prelude::*;
 
@@ -30,6 +31,68 @@ pub mod auth {
     }
 }
 
+pub mod config {
+
+    use std::fs::{File, rename};
+    use std::io::{Error, Read};
+    use toml;
+    use std::path::Path;
+
+    #[derive(Debug, Deserialize)]
+    pub struct Config {
+        // more config here
+    }
+
+
+    #[derive(Debug, Deserialize)]
+    pub struct EnvironConfig {
+        name: String,
+        account_id: String,
+        region: String,
+        ssh_user: Option<String>,
+        ssh_options: Option<Vec<String>>,
+    }
+
+    fn default_config() -> Vec<EnvironConfig> {
+        let default_config = r#"[[environments]]
+name = "default"
+account_id = "12345"
+region = "us-east-1"
+ssh_user = "ubuntu""#;
+        match toml::from_str(&default_config) {
+            Ok(config) => config,
+            Err(err) => {
+                println!("The default config couldn't be deserialzed by toml. This is a problem in the source: {}",
+                         default_config);
+                panic!();
+            }
+        }
+    }
+
+
+    pub fn read_config(cache_dir: &String) -> Vec<EnvironConfig> {
+        let pathname = format!("{}/config", cache_dir);
+        let mut file_bytes = String::new();
+        let mut config_file = match File::open(Path::new(&pathname)) {
+            Ok(file) =>  file,
+            Err(err) => {
+                println!("Couldn't read config file {} because {:?}", pathname, err);
+                panic!();
+            }
+        };
+        
+        let config_file_read = config_file.read_to_string(&mut file_bytes).expect("Something went wrong");
+        match toml::from_str(&file_bytes) {
+            Ok(data) => data,
+            Err(err) => {
+                println!("Couldn't read toml from {} because {:?}", pathname, err);
+                println!("Using the default config");
+                default_config()
+            }
+        }
+    }
+
+}
 
 // The general idea for saving and restoring paths will be that first the cache will be consulted
 // when looking for a resource.  If the resource is found, bingo.
@@ -48,9 +111,9 @@ pub mod ec2_instances {
 
     use std::fs::{File, rename};
     use std::path::Path;
-    use std::error::Error;
     use std::io::prelude::*;
     use std::io;
+    use std::io::{Error, Read};    
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
     use regex::Regex;
@@ -90,7 +153,7 @@ pub mod ec2_instances {
     }
 
 
-    pub fn read_without_cache(region_name: &String, cache_dir: &String, aws_account_id: &String) -> Vec<AshufInfo> {
+    pub fn read_without_cache(cache_dir: &String, region_name: &String, aws_account_id: &String) -> Vec<AshufInfo> {
         let creds = ::auth::credentials_provider(None, None);
         let reg = Region::from_str(region_name).unwrap();
         let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
@@ -115,15 +178,19 @@ pub mod ec2_instances {
     }
         
     
-    pub fn read_via_cache(region_name: &String, cache_dir: &String, cache_ttl: i64, aws_account_id: &String) -> Vec<AshufInfo> {
+    pub fn read_via_cache(cache_dir: &String, region_name: &String, aws_account_id: &String, cache_ttl: i64) -> Vec<AshufInfo> {
         
         // let mut limited_info = Vec::new();
-        let limited_info = match ec2_cached_data(cache_dir.clone(), &aws_account_id, &region_name, cache_ttl) {
+        println!("cache_dir: {}", cache_dir);
+        println!("account: {}", aws_account_id);
+        println!("region_name: {}", region_name);
+        
+        let limited_info = match ec2_cached_data(&cache_dir, &aws_account_id, &region_name, cache_ttl) {
             Ok(instances) => {
                 // println!("I'm using cache data");
                 instances
             },
-            Err(_) => read_without_cache(region_name, cache_dir, aws_account_id)
+            Err(_) => read_without_cache(cache_dir, region_name, aws_account_id)
         };
 
         // XXx when ready, map over the regions provided and cache those
@@ -258,12 +325,15 @@ pub mod ec2_instances {
     }
     
 
-    pub fn ec2_cached_data(cache_path_dir: String, account: &String, region_name: &String, cache_ttl: i64) -> Result<Vec<AshufInfo>, String> {
+    pub fn ec2_cached_data(cache_dir: &String, account: &String, region_name: &String, cache_ttl: i64) -> Result<Vec<AshufInfo>, String> {
         // Look at the file at the provided path, and if the age of the
         // file is less than the specified age, get ec2 instance info
         // from it instead of from the api.
         // Otherwise go through the API and return that data
-        let data = match read_saved_json(&cache_path_dir, &account, &region_name) {
+        println!("cache_dir: {}", cache_dir);
+        println!("account: {}", account);
+        println!("region_name: {}", region_name);
+        let data = match read_saved_json(&cache_dir, &account, &region_name) {
             Ok(saved_data) => saved_data,
             Err(error) => return Err(format!("{} while opening {}", error, "cache file"))
         };
@@ -312,13 +382,21 @@ pub mod ec2_instances {
         Ok("Cache written out".to_string())
     }
 
-    pub fn read_saved_json(account: &String, cache_dir: &String, region_name: &String) -> io::Result<CacheData> {
+    pub fn read_saved_json(cache_dir: &String, account: &String, region_name: &String) -> io::Result<CacheData> {
         let pathname = format!("{}/{}_{}_ec2_instances.json", cache_dir, account, region_name);
         let mut file_bytes = String::new();
-        let mut cache_file = File::open(Path::new(&pathname))?;
+        let mut cache_file = match File::open(Path::new(&pathname)) {
+            Ok(file) =>  file,
+            Err(err) => {
+                println!("Couldn't read cache file {} because {:?}", pathname, err);
+                panic!();
+            }
+        };
+        // let mut cache_file = File::open(Path::new(&pathname))?;
 
         // println!("starting read_saved_json; path to the instances file is known, and file is opened");
-        // let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
+        
+        let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
         let instance_data: CacheData = serde_json::from_str(&file_bytes)?;
         Ok(instance_data)
     }
