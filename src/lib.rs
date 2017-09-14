@@ -95,11 +95,6 @@ ssh_options = ["-l", "ubuntu", "-o", "StrictHostKeyChecking=no", "-o", "UserKnow
 //
 // In the case(s) where the resource can't be found, try the API, and if the API call is successful,
 // record the updated data.  If it is not so successful, then avoid clobbering the current data.
-//
-// Also, add a way to generally indicate whether we do want to clobber the cached data
-
-// Note: do I want to have a flag or a struct to define whether or not I should do some of these things?  Like a
-// D_NO_CLOBBER_CACHE_FILE or something?
 pub mod ec2_instances {
     use rusoto_core::{Region, default_tls_client};
     use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance, Reservation};
@@ -340,7 +335,7 @@ pub mod ec2_instances {
         let difference = Utc::now().signed_duration_since(data.written_time); // Note that the order matters here.
         println!("Difference in time between cache record and now is {}", difference);
             
-        if difference > Duration::seconds(cache_ttl) {
+        if difference < Duration::seconds(cache_ttl) {
             println!("Got data, and the time is valid");
             Ok(data.instance_data)
         } else {
