@@ -320,6 +320,10 @@ pub mod ec2_instances {
     }
     
 
+    // I think I want to change how this works.  I think it'd be better if
+    // the default  case is that  if an instance is found in the cache, then
+    // don't refresh, just use it.  Only refresh if an instance isn't found
+    // and the cache has aged out.  Or if the user requests it.
     pub fn ec2_cached_data(cache_dir: &String, account: &String, region_name: &String, cache_ttl: i64) -> Result<Vec<AshufInfo>, String> {
         // Look at the file at the provided path, and if the age of the
         // file is less than the specified age, get ec2 instance info
@@ -336,10 +340,10 @@ pub mod ec2_instances {
         println!("Difference in time between cache record and now is {}", difference);
             
         if difference < Duration::seconds(cache_ttl) {
-            println!("Got data, and the time is valid");
+            // println!("Got data, and the time is valid");
             Ok(data.instance_data)
         } else {
-            println!("Got data, and the time expired");            
+            // println!("Got data, and the time expired");            
             Err("Expired".to_string())
         }
     }

@@ -59,7 +59,7 @@ fn main() {
     };
     let env_name = parsed_cmdline.get_str("-n");
     let bypass_cache = parsed_cmdline.get_bool("-c");
-    let cache_ttl = 300; // XXX Move this to config
+    let cache_ttl = 3600;
     let data_dir = shellexpand::full(parsed_cmdline.get_str("-d"))
         .unwrap()
         .to_string();

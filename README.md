@@ -126,7 +126,7 @@ likely that you and your peers will cause each other to experience
 delays in getting a response as AWS imposes delays on that MB+ of 
 data that you need from their API.
 
-## Adding some flexibility in the future.
+## Flexibility
 
 This idea usually works pretty well with ec2 instances.  The most
 useful way that this can interact with ec2 is to allow you to ssh to a
@@ -139,18 +139,16 @@ in a sensible way (e.g. for RDS, should check to see if it's a mysql
 or postgres instance and let you tell it what tool to invoke to talk
 to the DB).
 
-For right now, the flexibility is limited.  It includes:
+Anyway, right now this has:
 
-1. Caching ec2 instance info separately per-account
+1. Caching ec2 instance info separately per-account and region
 2. Providing different styles of printing out data (e.g. dump json of
    instances, just print all IP addresses, just print one IP address
    randomly).
-   
-It should include:
-
-1. Invoking ssh with a set of flags that can be configured (e.g. some
+3. Invoking ssh with a set of flags that can be configured (e.g. some
    ppl like using the agent, some ppl will want to use an alternative
    .ssh/config, etc.)
-2. Other APIs like RDS, etc.
-3. Being able to query multiple regions and save and cache those results
-   and use them.
+
+
+In the future it'd be nice to work similarly for Other APIs like RDS, etc.
+
