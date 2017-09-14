@@ -37,41 +37,39 @@ pub mod config {
     use std::io::{Error, Read};
     use toml;
     use std::path::Path;
-
+    use std::collections::HashMap;
+    
     #[derive(Debug, Deserialize)]
     pub struct Config {
-        // more config here
+        pub environments: HashMap<String, EnvironConfig>, 
     }
-
-
     #[derive(Debug, Deserialize)]
     pub struct EnvironConfig {
-        name: String,
-        account_id: String,
-        region: String,
-        ssh_user: Option<String>,
-        ssh_options: Option<Vec<String>>,
+        pub account_id: String,
+        pub region: String,
+        pub ssh_options: Vec<String>,
     }
+        
 
-    fn default_config() -> Vec<EnvironConfig> {
-        let default_config = r#"[[environments]]
-name = "default"
-account_id = "12345"
+    fn default_config() -> Config {
+        let default_config = r#"
+[environments.default]
+account_id = "123"
 region = "us-east-1"
-ssh_user = "ubuntu""#;
+ssh_options = ["-l", "ubuntu", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+"#;
         match toml::from_str(&default_config) {
             Ok(config) => config,
             Err(err) => {
-                println!("The default config couldn't be deserialzed by toml. This is a problem in the source: {}",
+                println!("The default config couldn't be deserialzed by toml. This is a problem in the source: \n{}",
                          default_config);
                 panic!();
             }
         }
     }
 
-
-    pub fn read_config(cache_dir: &String) -> Vec<EnvironConfig> {
-        let pathname = format!("{}/config", cache_dir);
+    pub fn read_config(config_dir: &String) -> Config {
+        let pathname = format!("{}/config.toml", config_dir);
         let mut file_bytes = String::new();
         let mut config_file = match File::open(Path::new(&pathname)) {
             Ok(file) =>  file,
@@ -91,7 +89,6 @@ ssh_user = "ubuntu""#;
             }
         }
     }
-
 }
 
 // The general idea for saving and restoring paths will be that first the cache will be consulted

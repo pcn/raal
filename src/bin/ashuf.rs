@@ -12,6 +12,7 @@ use docopt::Docopt;
 use rand::{sample, thread_rng};
 
 use raal::ec2_instances::{AshufInfo, read_without_cache, read_via_cache, instances_matching_regex};
+use raal::config::read_config ;
 
 const USAGE: &'static str = "
 Query amazon for a random choice among some set of resources
@@ -19,7 +20,7 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c] [-d] [-e <env_name>] [-t <cache_dir>] [-r <region>...] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-d] [-e <env_name>] [-t <cache_dir>] [-r <region>...] [-n <name>] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
@@ -30,11 +31,11 @@ Options:
   -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
   -s --ssh-command=<cmd>    Path to ssh or a wrapper [default: /usr/bin/ssh]
   -t <cache_dir>            Directory for cached data [default: ~/.raal]
+  -n <name>                 Easy name for this environment [default: default]
 
 ";
 
 fn launch_ssh(ssh_path: String, more_ssh_options: Vec<String>, info: AshufInfo) {
-    println!("Mark");
     let mut args = vec!["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null" ];
 
     for arg in &more_ssh_options {
@@ -45,8 +46,6 @@ fn launch_ssh(ssh_path: String, more_ssh_options: Vec<String>, info: AshufInfo) 
     let could_not_exec = Command::new(ssh_path.clone())
         .args(args.clone())
         .exec();
-
-    // let could_not_exec = Command::new("/usr/bin/env").exec();
     println!("Couldn't exec {} {:?} because {:?}", ssh_path, args, could_not_exec);
 }
 
@@ -63,6 +62,7 @@ fn main() {
         println!("Pattern is {:?}", pattern);
     };
     let r = parsed_cmdline.get_vec("-r");
+    let env_name = parsed_cmdline.get_str("-n");
     let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
         Ok(val) => val,
         Err(_) => "default".to_string()
@@ -73,6 +73,9 @@ fn main() {
     let cache_dir = shellexpand::full(parsed_cmdline.get_str("-t"))
         .unwrap()
         .to_string();
+    let config = read_config(&cache_dir); // use same dir for cache and config for now.
+    // let config = default_config();
+    println!("{:?}", config);
 
     let all_instances = match bypass_cache {
         true => {
@@ -85,13 +88,21 @@ fn main() {
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);
     let ssh_path = parsed_cmdline.get_str("-s");
+
     let more_ssh_options = {
-        let ssh_options = parsed_cmdline.get_vec("<more_ssh_options>");
-        let mut opts = Vec::new();
-        for opt in &ssh_options {
-            opts.push(opt.to_string());
+        let conf_opts = match config.environments.get(&env_name.to_string()) {
+            Some(cf) => cf.ssh_options.clone(),
+            None => vec![]
         };
-        opts
+
+        if parsed_cmdline.get_vec("<more_ssh_options>").len() > 0 {
+            parsed_cmdline.get_vec("<more_ssh_options>")
+                .into_iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+        } else {
+            conf_opts
+        }
     };
     let mut rng = thread_rng();
     let sampled_instance = sample(&mut rng, matches.clone(), 1);
