@@ -1,9 +1,6 @@
 // #[macro_use] extern crate lazy_static;
 extern crate docopt;
 extern crate raal;
-extern crate regex;
-extern crate rand;
-extern crate serde;
 extern crate serde_json;
 extern crate shellexpand;
 

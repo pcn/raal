@@ -7,8 +7,6 @@ extern crate chrono;
 extern crate regex;
 extern crate toml;
 
-use chrono::prelude::*;
-
 pub mod auth {
     use rusoto_core::{ChainProvider, ProfileProvider};
     // From:
@@ -33,8 +31,8 @@ pub mod auth {
 
 pub mod config {
 
-    use std::fs::{File, rename};
-    use std::io::{Error, Read};
+    use std::fs::File;
+    use std::io::Read;
     use toml;
     use std::path::Path;
     use std::collections::HashMap;
@@ -61,7 +59,8 @@ ssh_options = ["-l", "ubuntu", "-o", "StrictHostKeyChecking=no", "-o", "UserKnow
         match toml::from_str(&default_config) {
             Ok(config) => config,
             Err(err) => {
-                println!("The default config couldn't be deserialzed by toml. This is a problem in the source: \n{}",
+                println!("The default config couldn't be deserialzed by toml because {:?}. This is a problem in the source: \n{}",
+                         err,
                          default_config);
                 panic!();
             }
@@ -79,7 +78,7 @@ ssh_options = ["-l", "ubuntu", "-o", "StrictHostKeyChecking=no", "-o", "UserKnow
             }
         };
         
-        let config_file_read = config_file.read_to_string(&mut file_bytes).expect("Something went wrong");
+        config_file.read_to_string(&mut file_bytes).expect("Something went wrong");
         match toml::from_str(&file_bytes) {
             Ok(data) => data,
             Err(err) => {
@@ -110,7 +109,7 @@ pub mod ec2_instances {
     use std::path::Path;
     use std::io::prelude::*;
     use std::io;
-    use std::io::{Error, Read};    
+    use std::io::Read;    
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
     use regex::Regex;
@@ -178,9 +177,9 @@ pub mod ec2_instances {
     pub fn read_via_cache(cache_dir: &String, region_name: &String, aws_account_id: &String, cache_ttl: i64) -> Vec<AshufInfo> {
         
         // let mut limited_info = Vec::new();
-        println!("cache_dir: {}", cache_dir);
-        println!("account: {}", aws_account_id);
-        println!("region_name: {}", region_name);
+        // println!("cache_dir: {}", cache_dir);
+        // println!("account: {}", aws_account_id);
+        // println!("region_name: {}", region_name);
         
         let limited_info = match ec2_cached_data(&cache_dir, &aws_account_id, &region_name, cache_ttl) {
             Ok(instances) => {
@@ -297,10 +296,14 @@ pub mod ec2_instances {
             unmatched_instances = u;
             matched_instances.extend_from_slice(m.as_slice());
         }
-
         matched_instances
     }
-    
+
+    pub fn running_instances(instances: Vec<AshufInfo>) -> Vec<AshufInfo> {
+        instances.into_iter()
+            .filter(|i| i.state_name == "running".to_string())
+            .collect::<Vec<AshufInfo>>()
+    }
 
     pub fn ec2_res_to_instances(reservations: Vec<Reservation>) -> Vec<Instance> {
         // The ec2 `describe-instances` call returns a structure that describe
@@ -327,15 +330,15 @@ pub mod ec2_instances {
         // file is less than the specified age, get ec2 instance info
         // from it instead of from the api.
         // Otherwise go through the API and return that data
-        println!("cache_dir: {}", cache_dir);
-        println!("account: {}", account);
-        println!("region_name: {}", region_name);
+        // println!("cache_dir: {}", cache_dir);
+        // println!("account: {}", account);
+        // println!("region_name: {}", region_name);
         let data = match read_saved_json(&cache_dir, &account, &region_name) {
             Ok(saved_data) => saved_data,
             Err(error) => return Err(format!("{} while opening {}", error, "cache file"))
         };
         let difference = Utc::now().signed_duration_since(data.written_time); // Note that the order matters here.
-        println!("Difference is {}", difference);
+        println!("Difference in time between cache record and now is {}", difference);
             
         if difference > Duration::seconds(cache_ttl) {
             println!("Got data, and the time is valid");
@@ -393,7 +396,7 @@ pub mod ec2_instances {
 
         // println!("starting read_saved_json; path to the instances file is known, and file is opened");
         
-        let cache_file_read = cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
+        cache_file.read_to_string(&mut file_bytes).expect("Something went wrong");
         let instance_data: CacheData = serde_json::from_str(&file_bytes)?;
         Ok(instance_data)
     }

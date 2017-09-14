@@ -4,14 +4,12 @@ extern crate raal;
 extern crate rand;
 extern crate shellexpand;
 
-
-use std::env;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
 use docopt::Docopt;
 use rand::{sample, thread_rng};
 
-use raal::ec2_instances::{AshufInfo, read_without_cache, read_via_cache, instances_matching_regex};
+use raal::ec2_instances::{AshufInfo, read_without_cache, read_via_cache, instances_matching_regex, running_instances};
 use raal::config::read_config ;
 
 const USAGE: &'static str = "
@@ -20,17 +18,15 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c] [-d] [-e <env_name>] [-t <cache_dir>] [-r <region>...] [-n <name>] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-v] [-d <data_dir>] [-n <name>] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
   -h --help                 Show this help screen
-  -d                        Debug stuff
+  -v                        verbose info for troubleshooting
   -c                        Bypass the cached resources info
-  -e --env-name=<env_name>  The environment variable containing the name of this account [default: AWS_ACCOUNT_ID]
-  -r --region=<region>      Region (can be specified more than once) [default: us-east-1 us-west-2]
   -s --ssh-command=<cmd>    Path to ssh or a wrapper [default: /usr/bin/ssh]
-  -t <cache_dir>            Directory for cached data [default: ~/.raal]
+  -d <data_dir>             Data directory with cached data and config [default: ~/.raal]
   -n <name>                 Easy name for this environment [default: default]
 
 ";
@@ -55,40 +51,46 @@ fn main() {
     let parsed_cmdline = Docopt::new(USAGE)
         .and_then(|d| d.version(Some(version)).parse())
         .unwrap_or_else(|e| e.exit());
-    let debug = parsed_cmdline.get_bool("-d");
+    let debug = parsed_cmdline.get_bool("-v");
     let pattern = parsed_cmdline.get_str("<pattern>").to_string();
     if debug {
         println!("Command line parsed to {:?}", parsed_cmdline);
         println!("Pattern is {:?}", pattern);
     };
-    let r = parsed_cmdline.get_vec("-r");
     let env_name = parsed_cmdline.get_str("-n");
-    let aws_id = match env::var(parsed_cmdline.get_str("-e")) {
-        Ok(val) => val,
-        Err(_) => "default".to_string()
-    };
-
     let bypass_cache = parsed_cmdline.get_bool("-c");
-    let cache_ttl = 300;
-    let cache_dir = shellexpand::full(parsed_cmdline.get_str("-t"))
+    let cache_ttl = 300; // XXX Move this to config
+    let data_dir = shellexpand::full(parsed_cmdline.get_str("-d"))
         .unwrap()
         .to_string();
-    let config = read_config(&cache_dir); // use same dir for cache and config for now.
-    // let config = default_config();
-    println!("{:?}", config);
-
+    let config = read_config(&data_dir); 
+    let aws_id = config.environments
+        .get(&env_name.to_string())
+        .unwrap()
+        .account_id
+        .clone();
+    let aws_region = config.environments
+        .get(&env_name.to_string())
+        .unwrap()
+        .region
+        .clone();
+    
     let all_instances = match bypass_cache {
         true => {
-            println!("Bypassing the cache");
-            read_without_cache(&cache_dir, &r[0].to_string(), &aws_id)
+            if debug {
+                println!("Bypassing the cache");
+            }
+            read_without_cache(&data_dir, &aws_region, &aws_id)
         },
-        false => read_via_cache(&cache_dir, &r[0].to_string(), &aws_id, cache_ttl),
+        false => read_via_cache(&data_dir, &aws_region, &aws_id, cache_ttl),
     };
     // These are the tags we'll filter on
     let tags = vec!["Name".to_string(), "Tier".to_string()];
     let matches = instances_matching_regex(pattern, tags, all_instances);
+    let alive_matches = running_instances(matches);
     let ssh_path = parsed_cmdline.get_str("-s");
 
+    // Allow the configured ssh options to be overridden
     let more_ssh_options = {
         let conf_opts = match config.environments.get(&env_name.to_string()) {
             Some(cf) => cf.ssh_options.clone(),
@@ -104,13 +106,22 @@ fn main() {
             conf_opts
         }
     };
+
     let mut rng = thread_rng();
-    let sampled_instance = sample(&mut rng, matches.clone(), 1);
+    let sampled_instance = sample(&mut rng, alive_matches.clone(), 1);
     if sampled_instance.len() == 0 {
-        println!("The list of matches is {:?}", matches);
-        println!("But the sample returned is 0 length");
+        println!("The list of matches is {:?}", alive_matches);
+        println!("And the sample returned is 0 length");
+        println!("No instances matched your request, not doing anything");
     } else {
-        println!("{:?}", sampled_instance[0]);
+        if debug {
+            println!("{:?}", sampled_instance[0]);
+        } else {
+            println!("Name: {} IP: {} SSH options: {:?}",
+                    sampled_instance[0].tags.get("Name").unwrap(),
+                    sampled_instance[0].private_ip_addresses[0],
+                     more_ssh_options);
+        launch_ssh(ssh_path.to_string(), more_ssh_options, sampled_instance[0].clone());
+        }
     }
-    launch_ssh(ssh_path.to_string(), more_ssh_options, sampled_instance[0].clone());
 }
