@@ -92,19 +92,19 @@ fn main() {
 
     // Allow the configured ssh options to be overridden
     let more_ssh_options = {
-        let conf_opts = match config.environments.get(&env_name.to_string()) {
+        let mut conf_opts = match config.environments.get(&env_name.to_string()) {
             Some(cf) => cf.ssh_options.clone(),
             None => vec![]
         };
 
         if parsed_cmdline.get_vec("<more_ssh_options>").len() > 0 {
-            parsed_cmdline.get_vec("<more_ssh_options>")
+            let mut extra_ssh_opts = parsed_cmdline.get_vec("<more_ssh_options>")
                 .into_iter()
                 .map(|c| c.to_string())
-                .collect::<Vec<String>>()
-        } else {
-            conf_opts
+                .collect::<Vec<String>>();
+            conf_opts.append(&mut extra_ssh_opts);
         }
+        conf_opts
     };
 
     let mut rng = thread_rng();
