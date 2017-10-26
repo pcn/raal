@@ -321,9 +321,9 @@ pub mod ec2_instances {
     
 
     // I think I want to change how this works.  I think it'd be better if
-    // the default  case is that  if an instance is found in the cache, then
-    // don't refresh, just use it.  Only refresh if an instance isn't found
-    // and the cache has aged out.  Or if the user requests it.
+    // the default  case is that if an instance is found in the cache, then
+    // don't refresh, just use it. Only refresh if an instance isn't found
+    // and the cache has aged out. Or if the user requests it.
     pub fn ec2_cached_data(cache_dir: &String, account: &String, region_name: &String, cache_ttl: i64) -> Result<Vec<AshufInfo>, String> {
         // Look at the file at the provided path, and if the age of the
         // file is less than the specified age, get ec2 instance info
@@ -387,8 +387,9 @@ pub mod ec2_instances {
         let mut cache_file = match File::open(Path::new(&pathname)) {
             Ok(file) =>  file,
             Err(err) => {
-                println!("Couldn't read cache file {} because {:?}", pathname, err);
-                panic!();
+                // This is failing when there is no file, which is bad, since that's how we all start
+                // println!("Couldn't read cache file {} because {:?}", pathname, err);
+                return Err(err);
             }
         };
         // let mut cache_file = File::open(Path::new(&pathname))?;
