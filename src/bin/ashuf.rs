@@ -18,7 +18,7 @@ Query amazon for a random choice among some set of resources
 Display matching resources as a JSON document.
 
 Usage:
-  ashuf [-c] [-v] [-d <data_dir>] [-n <name>] <pattern> [<more_ssh_options>...]
+  ashuf [-c] [-C] [-v] [-d <data_dir>] [-n <name>] <pattern> [<more_ssh_options>...]
   ashuf (-h | --help)
 
 Options:
