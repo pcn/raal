@@ -7,28 +7,6 @@ extern crate chrono;
 extern crate regex;
 extern crate toml;
 
-pub mod auth {
-    use rusoto_core::{ChainProvider, ProfileProvider};
-    // From:
-    // https://github.comm/InQuicker/kaws/blob/master/src/aws.rs
-    #[warn(dead_code)]
-    pub fn credentials_provider(path: Option<&str>, profile: Option<&str>) -> ChainProvider {
-        let mut profile_provider = ProfileProvider::new().expect(
-            "Failed to create AWS credentials provider."
-        );
-
-        if let Some(path) = path {
-            profile_provider.set_file_path(path);
-        }
-
-        if let Some(profile) = profile {
-            profile_provider.set_profile(profile);
-        }
-
-        ChainProvider::with_profile_provider(profile_provider)
-    }
-}
-
 pub mod config {
 
     use std::fs::File;
@@ -96,7 +74,7 @@ ssh_options = ["-l", "ubuntu", "-o", "StrictHostKeyChecking=no", "-o", "UserKnow
 // In the case(s) where the resource can't be found, try the API, and if the API call is successful,
 // record the updated data.  If it is not so successful, then avoid clobbering the current data.
 pub mod ec2_instances {
-    use rusoto_core::{Region, default_tls_client};
+    use rusoto_core::{Region};
     use rusoto_ec2::{Ec2, Ec2Client, DescribeInstancesRequest, Instance, Reservation};
     // use std::collections::HashMap;
 
@@ -145,13 +123,12 @@ pub mod ec2_instances {
 
 
     pub fn read_without_cache(cache_dir: &String, region_name: &String, aws_account_id: &String) -> Vec<AshufInfo> {
-        let creds = ::auth::credentials_provider(None, None);
         let reg = Region::from_str(region_name).unwrap();
-        let client = Ec2Client::new(default_tls_client().unwrap(), creds, reg);
+        let client = Ec2Client::new(reg);
         
         let mut ec2_request_input = DescribeInstancesRequest::default();
         ec2_request_input.instance_ids = None;
-        match client.describe_instances(&ec2_request_input) {
+        match client.describe_instances(ec2_request_input).sync() {
             Ok(response) => {
                 let instances = ec2_res_to_instances(response.reservations.unwrap());
                 let instances_data = ashuf_info_list(instances);
