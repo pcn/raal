@@ -12,8 +12,8 @@ serde = "1.0.11"
 serde_json = "1.0.2"
 serde_derive = "1.0.11"
 # Rusoto AWS API
-rusoto_core = {version="0.34.0"}
-rusoto_ec2 = {version="0.34.0"}
+rusoto_core = {version="0.41.0"}
+rusoto_ec2 = {version="0.41.0"}
 
 # regular expressions for when I'm ready to filter fields
 regex = "0.2"
